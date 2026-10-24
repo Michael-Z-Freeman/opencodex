@@ -4,9 +4,11 @@ import { isSchemaObject, lookupLocalJsonPointer, xaiSchemasArePairwiseDisjoint }
 
 export function isXaiSchemaTarget(provider: Pick<OcxProviderConfig, "baseUrl">): boolean {
   try {
-    // Public api.x.ai accepts native root object unions. Only the Grok CLI proxy
-    // 400s on a root oneOf/anyOf, so flattening/omitting is scoped to that host.
-    return new URL(provider.baseUrl).hostname === "cli-chat-proxy.grok.com";
+    // Hosts that 400 on root oneOf/anyOf function parameter schemas (Grok CLI proxy, Azure OpenAI).
+    const host = new URL(provider.baseUrl).hostname;
+    return host === "cli-chat-proxy.grok.com"
+      || host.includes("openai.azure.com")
+      || host.includes("services.ai.azure.com");
   } catch {
     return false;
   }
@@ -348,4 +350,38 @@ export function normalizeXaiToolParameters(parameters: unknown): Record<string, 
     ...(required.length > 0 ? { required } : {}),
     ...("value" in additionalProperties ? { additionalProperties: additionalProperties.value } : {}),
   };
+}
+
+/**
+ * Fallback for schemas whose root `oneOf`/`anyOf`/`allOf` branches have heterogeneous `required`
+ * sets or `not` clauses (e.g., Grok Build's `use_tool` MCP dispatcher). Instead of returning
+ * `undefined` and silently dropping the tool on Azure OpenAI, merge branch properties into the
+ * root `properties` map and strip root-level union/applicator keywords rejected by Azure.
+ */
+export function flattenRootUnionToObjectSchema(parameters: unknown): Record<string, unknown> | undefined {
+  if (!isSchemaObject(parameters)) return undefined;
+  const budget = createXaiSchemaBudget();
+  const resolved = resolveXaiSchemaRefs(parameters, parameters, budget);
+  const root = isSchemaObject(resolved) ? { ...resolved } : { ...parameters };
+  const props: Record<string, unknown> = isSchemaObject(root.properties) ? { ...root.properties } : {};
+  for (const key of ["oneOf", "anyOf", "allOf"] as const) {
+    const branches = root[key];
+    if (!Array.isArray(branches)) continue;
+    for (const branch of branches) {
+      if (isSchemaObject(branch) && isSchemaObject(branch.properties)) {
+        for (const [propName, propSchema] of Object.entries(branch.properties)) {
+          if (!(propName in props)) {
+            props[propName] = propSchema;
+          }
+        }
+      }
+    }
+  }
+  delete root.$schema;
+  for (const forbidden of ["oneOf", "anyOf", "allOf", "enum", "const", "not"]) {
+    delete root[forbidden];
+  }
+  root.type = "object";
+  root.properties = props;
+  return root;
 }

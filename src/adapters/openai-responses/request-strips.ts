@@ -154,6 +154,13 @@ export function stripCanonicalOnlyToolFields(body: unknown, includeCapabilityGat
         const { [field]: _private, ...rest } = next;
         next = rest;
       }
+      if ((next.type === "web_search" || next.type === "web_search_preview") && isPlainObject(next.filters)) {
+        const allowed = next.filters.allowed_domains;
+        if (!Array.isArray(allowed) || allowed.length === 0) {
+          const { filters: _emptyFilters, ...rest } = next;
+          next = rest;
+        }
+      }
       if (next === tool) return tool;
       changed = true;
       return next;

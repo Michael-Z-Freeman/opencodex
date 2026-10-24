@@ -1071,6 +1071,11 @@ export function buildGrokManagedBlock(
     if (Number.isFinite(model.contextWindow) && (model.contextWindow ?? 0) > 0) {
       lines.push(`context_window = ${model.contextWindow}`);
     }
+    if (model.id.toLowerCase().includes("grok-4")) {
+      lines.push(
+        'reasoning_summary = "none"',
+      );
+    }
     // Array-of-tables MUST follow every parent keyval (including inline extra_headers).
     // Keep every picker option inside Grok's accepted CLI vocabulary; ultra is Codex-only.
     const efforts = sanitizeGrokReasoningEfforts(model.reasoningEfforts);

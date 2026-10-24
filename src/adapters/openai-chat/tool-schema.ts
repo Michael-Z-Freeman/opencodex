@@ -1,7 +1,7 @@
 import { isDeepseekArtifactTarget, relaxDeepseekArtifactSchema } from "./deepseek-artifact-schema";
 import { isNativeOpenAIChatTarget } from "./wire";
 import { createOpenAIChatToolNameRegistry, type OpenAIChatToolNameRegistry } from "./tool-name-registry";
-import { isXaiSchemaTarget, lookupLocalJsonPointer, normalizeXaiToolParameters } from "../xai-tool-schema";
+import { flattenRootUnionToObjectSchema, isXaiSchemaTarget, lookupLocalJsonPointer, normalizeXaiToolParameters } from "../xai-tool-schema";
 import { stripResponsesOnlyEncryptedMarker, stripUnicodePropertyPatterns } from "../responses-tool-schema";
 import { isAllowedToolChoice, resolveToolChoiceWireName, toolChoiceToolPredicate } from "../../types";
 import type { OcxParsedRequest, OcxProviderConfig } from "../../types";
@@ -545,7 +545,7 @@ export function toolsToChatFormat(
   };
   const formatted = tools.flatMap(t => {
     const normalized = xaiTarget
-      ? normalizeXaiToolParameters(t.parameters)
+      ? (normalizeXaiToolParameters(t.parameters) ?? flattenRootUnionToObjectSchema(t.parameters))
       : moonshotTarget
         ? normalizeMoonshotToolParameters(t.parameters, moonshotInlineByteBudget)
         : ensureRootObjectType(t.parameters);

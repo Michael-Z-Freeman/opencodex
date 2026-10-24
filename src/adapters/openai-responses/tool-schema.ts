@@ -3,6 +3,7 @@ import { declaredUnsupportedHostedTools, isHostedToolUnsupportedForModel } from 
 import { debugProviderDiagnostic } from "../../lib/debug";
 import { stripUnicodePropertyPatterns } from "../responses-tool-schema";
 import {
+  flattenRootUnionToObjectSchema,
   isXaiSchemaTarget,
   normalizeXaiToolParameters,
   XaiToolSchemaCompatibilityError,
@@ -11,19 +12,33 @@ import { isPlainObject } from "./internal";
 
 function normalizeFunctionToolSchema(tool: unknown, xaiTarget: boolean): unknown | undefined {
   if (!isPlainObject(tool) || tool.type !== "function") return tool;
+
+  const nestedFn = isPlainObject(tool.function) ? tool.function : undefined;
+
+  const rawParams = nestedFn
+    ? (isPlainObject(nestedFn.parameters) ? nestedFn.parameters : {})
+    : (isPlainObject(tool.parameters) ? tool.parameters : {});
+
   // Runs for every Responses destination, forward auth included: the ChatGPT backend is where
   // the `\p{…}` rejection was observed, and it reaches this function through the same seam.
-  const compatible = stripUnicodePropertyPatterns(tool);
-  const source = isPlainObject(compatible) ? compatible : tool;
+  const compatibleParams = stripUnicodePropertyPatterns(rawParams);
+  const sourceParams = isPlainObject(compatibleParams) ? compatibleParams : rawParams;
+
   if (xaiTarget) {
-    const parameters = normalizeXaiToolParameters(isPlainObject(source.parameters) ? source.parameters : {});
-    return parameters === undefined ? undefined : { ...source, parameters };
+    const normalized = normalizeXaiToolParameters(sourceParams) ?? flattenRootUnionToObjectSchema(sourceParams);
+    if (normalized === undefined) return undefined;
+    return nestedFn
+      ? { ...tool, function: { ...nestedFn, parameters: normalized } }
+      : { ...tool, parameters: normalized };
   }
-  if (isPlainObject(source.parameters) && source.parameters.type === "object") return source;
-  return {
-    ...source,
-    parameters: { ...(isPlainObject(source.parameters) ? source.parameters : {}), type: "object" },
-  };
+
+  const finalParams = (isPlainObject(sourceParams) && sourceParams.type === "object")
+    ? sourceParams
+    : { ...(isPlainObject(sourceParams) ? sourceParams : {}), type: "object" };
+
+  return nestedFn
+    ? { ...tool, function: { ...nestedFn, parameters: finalParams } }
+    : { ...tool, parameters: finalParams };
 }
 
 /**
@@ -83,7 +98,12 @@ export function normalizeToolSchemas(body: unknown, xaiTarget: boolean): unknown
       const fixed = normalizeFunctionToolSchema(tool, xaiTarget);
       if (fixed === undefined) {
         changed = true;
-        if (isPlainObject(tool) && typeof tool.name === "string") omittedFunctionNames.add(tool.name);
+        if (isPlainObject(tool)) {
+          const name = typeof tool.name === "string" 
+            ? tool.name 
+            : (isPlainObject(tool.function) && typeof tool.function.name === "string" ? tool.function.name : undefined);
+          if (name) omittedFunctionNames.add(name);
+        }
         continue;
       }
       if (fixed !== tool) changed = true;
