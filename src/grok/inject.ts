@@ -1071,8 +1071,14 @@ export function buildGrokManagedBlock(
     if (Number.isFinite(model.contextWindow) && (model.contextWindow ?? 0) > 0) {
       lines.push(`context_window = ${model.contextWindow}`);
     }
-    if (model.id.toLowerCase().includes("grok-4")) {
+    const grok4Match = /(?:^|\/)grok-(4(?:\.\d+)?)/i.exec(model.id);
+    if (grok4Match) {
+      // Match Grok Build's built-in xAI catalog rows (default_models.json) so routed
+      // Grok models get the same family grouping and system-prompt identity. Azure
+      // grok-4.x rejects reasoning.summary, so "none" omits the field.
       lines.push(
+        'model_family = "xai"',
+        `system_prompt_label = ${tomlString(`Grok ${grok4Match[1]}`)}`,
         'reasoning_summary = "none"',
       );
     }
